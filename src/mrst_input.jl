@@ -720,6 +720,7 @@ function setup_case_from_mrst(casename; wells = :ms,
                                         p_min = DEFAULT_MINIMUM_PRESSURE,
                                         p_max = Inf,
                                         dr_max = Inf,
+                                        ctrl_adjustment = Dict(),
                                         kwarg...)
     data_domain, mrst_data = reservoir_domain_from_mrst(casename, extraout = true)
     G = discretized_domain_tpfv_flow(data_domain; kwarg...)
@@ -740,7 +741,7 @@ function setup_case_from_mrst(casename; wells = :ms,
         @assert !haskey(mrst_data, "W")
 
         schedule = mrst_data["schedule"]
-
+        
         dt = schedule["step"]["val"]
         first_ctrl = schedule["control"][1]
         first_well_set = vec(deepcopy(first_ctrl["W"]))
@@ -798,7 +799,8 @@ function setup_case_from_mrst(casename; wells = :ms,
         end
         pw = wi.primary_variables
         models[sym] = wi
-        ctrl = mrst_well_ctrl(model, wdata, is_comp, rhoS)
+
+        ctrl = mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_adjustment[1])
         if isa(ctrl, InjectorControl)
             factor = 1.01
             if is_comp
@@ -915,7 +917,7 @@ function setup_case_from_mrst(casename; wells = :ms,
                 for (wno, wsym) in enumerate(well_symbols)
                     wdata = local_mrst_wells[wno]
                     wmodel = models[wsym]
-                    current_control[wsym] = mrst_well_ctrl(model, wdata, is_comp, rhoS)
+                    current_control[wsym] = mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_adjustment[i])
                     cstatus = vectorize(wdata["cstatus"])
                     lims = wdata["lims"]
                     if !isempty(lims)
@@ -1016,7 +1018,17 @@ function facility_subset(well_symbols, controls)
     return ctrls
 end
 
-function mrst_well_ctrl(model, wdata, is_comp, rhoS)
+function mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_adjustment)
+    if length(ctrl_adjustment) == 0
+    else 
+        wdata["type"] = ctrl_adjustment[Symbol(wdata["name"])][1]
+        wdata["val"] = ctrl_adjustment[Symbol(wdata["name"])][2]
+        try
+            wdata["lims"][wdata["type"]] = ctrl_adjustment[Symbol(wdata["name"])][2]
+        catch
+        end
+    end
+
     t_mrst = wdata["val"]
     is_injector = wdata["sign"] > 0
     is_shut = wdata["status"] < 1
@@ -1128,6 +1140,7 @@ function simulate_mrst_case(fn; extra_outputs::Vector{Symbol} = [:Saturations],
                                 restart = false,
                                 wells = :ms,
                                 linear_solver = :bicgstab,
+                                ctrl_adjustment = Dict(),
                                 kwarg...)
     fn = get_mrst_input_path(fn)
     if verbose
@@ -1152,7 +1165,8 @@ function simulate_mrst_case(fn; extra_outputs::Vector{Symbol} = [:Saturations],
                                                                             dp_max_rel = dp_max_rel,
                                                                             p_min = p_min,
                                                                             p_max = p_max,
-                                                                            ds_max = ds_max);
+                                                                            ds_max = ds_max,
+                                                                            ctrl_adjustment = ctrl_adjustment);
     model = case.model
     forces = case.forces
     dt = case.dt
