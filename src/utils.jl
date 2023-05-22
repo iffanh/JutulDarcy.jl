@@ -598,7 +598,7 @@ function Base.iterate(t::ReservoirSimResult, state)
     if state == :states
         return (t.time, nothing)
     else
-        @assert state == :wells "Unapck syntax: ws, states, t = res_result"
+        # @assert state == :wells "Unapck syntax: ws, states, t = res_result"
         return (t.states, :states)
     end
 end

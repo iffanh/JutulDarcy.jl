@@ -720,7 +720,7 @@ function setup_case_from_mrst(casename; wells = :ms,
                                         p_min = DEFAULT_MINIMUM_PRESSURE,
                                         p_max = Inf,
                                         dr_max = Inf,
-                                        ctrl_adjustment = Dict(),
+                                        ctrl_config = Dict(),
                                         kwarg...)
     data_domain, mrst_data = reservoir_domain_from_mrst(casename, extraout = true)
     G = discretized_domain_tpfv_flow(data_domain; kwarg...)
@@ -800,7 +800,7 @@ function setup_case_from_mrst(casename; wells = :ms,
         pw = wi.primary_variables
         models[sym] = wi
 
-        ctrl = mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_adjustment[1])
+        ctrl = mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_config["vars"][1])
         if isa(ctrl, InjectorControl)
             factor = 1.01
             if is_comp
@@ -884,13 +884,29 @@ function setup_case_from_mrst(casename; wells = :ms,
         vectorize(d) = vec(d)
 
         if has_schedule
-            control_ix = Int64.(vectorize(schedule["step"]["control"]))
+            ## DEBUG: override control indices here
+            if length(ctrl_config) != 0
+                control_ix = Int64.(vectorize(schedule["step"]["control"]))
+                for (i, t) in enumerate(ctrl_config["timesteps"])
+                    if i == length(ctrl_config["timesteps"])
+                        tend = length(control_ix)
+                    else
+                        tend = ctrl_config["timesteps"][i+1]
+                    end
+                    control_ix[t:tend] .= i
+                end
+            else
+                control_ix = Int64.(vectorize(schedule["step"]["control"]))
+            end
             nctrl = maximum(control_ix)
             # We may have multiple controls and need to do further work.
             current_control = deepcopy(controls)
             all_controls = Vector{typeof(forces)}()
             for i = 1:nctrl
-                ctrl_i = schedule["control"][i]
+                # DEBUG
+                # display(schedule["control"])
+                ctrl_i = schedule["control"][1]
+                # ctrl_i = schedule["control"][i]
                 new_force = deepcopy(forces)
                 if haskey(ctrl_i, "bc")
                     bc = ctrl_i["bc"]
@@ -917,7 +933,7 @@ function setup_case_from_mrst(casename; wells = :ms,
                 for (wno, wsym) in enumerate(well_symbols)
                     wdata = local_mrst_wells[wno]
                     wmodel = models[wsym]
-                    current_control[wsym] = mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_adjustment[i])
+                    current_control[wsym] = mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_config["vars"][i])
                     cstatus = vectorize(wdata["cstatus"])
                     lims = wdata["lims"]
                     if !isempty(lims)
@@ -1018,13 +1034,13 @@ function facility_subset(well_symbols, controls)
     return ctrls
 end
 
-function mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_adjustment)
-    if length(ctrl_adjustment) == 0
+function mrst_well_ctrl(model, wdata, is_comp, rhoS, ctrl_config)
+    if length(ctrl_config) == 0
     else 
-        wdata["type"] = ctrl_adjustment[Symbol(wdata["name"])][1]
-        wdata["val"] = ctrl_adjustment[Symbol(wdata["name"])][2]
+        wdata["type"] = ctrl_config[Symbol(wdata["name"])][1]
+        wdata["val"] = ctrl_config[Symbol(wdata["name"])][2]
         try
-            wdata["lims"][wdata["type"]] = ctrl_adjustment[Symbol(wdata["name"])][2]
+            wdata["lims"][wdata["type"]] = ctrl_config[Symbol(wdata["name"])][2]
         catch
         end
     end
@@ -1140,7 +1156,7 @@ function simulate_mrst_case(fn; extra_outputs::Vector{Symbol} = [:Saturations],
                                 restart = false,
                                 wells = :ms,
                                 linear_solver = :bicgstab,
-                                ctrl_adjustment = Dict(),
+                                ctrl_config = Dict(),
                                 kwarg...)
     fn = get_mrst_input_path(fn)
     if verbose
@@ -1166,7 +1182,7 @@ function simulate_mrst_case(fn; extra_outputs::Vector{Symbol} = [:Saturations],
                                                                             p_min = p_min,
                                                                             p_max = p_max,
                                                                             ds_max = ds_max,
-                                                                            ctrl_adjustment = ctrl_adjustment);
+                                                                            ctrl_config = ctrl_config);
     model = case.model
     forces = case.forces
     dt = case.dt
